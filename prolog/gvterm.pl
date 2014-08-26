@@ -6,6 +6,7 @@
 :- use_module(library(dcg/basics)).
 :- use_module(library(process)).
 :- use_module(library(settings)).
+:- use_module(library(gensym)).
 
 /** <module> View complex terms using Graphviz
 
@@ -13,7 +14,7 @@ This library translates complex Prolog terms  into Graphviz (dot) output
 for graphical rendering.
 
 @see	Default renderer is xdot from
-	http://code.google.com/p/jrfonseca/wiki/XDot
+	https://github.com/jrfonseca/xdot.py
 */
 
 :- setting(graphviz:dot_viewer, atom, xdot,
@@ -66,7 +67,7 @@ term_to_dot(Out, Term) :-
 	\+ \+ ( numbervars(Term, 0, _, [singletons(true)]),
 		'$factorize_term'(Term, Skel, Subst),
 		label_factors(Subst),
-		phrase(struct(Skel), Codes),
+		phrase(struct0(Skel), Codes),
 		format(Out, 'digraph structs {\n  node [shape=record];\n~s}\n', [Codes])
 	      ).
 
@@ -78,9 +79,28 @@ label_factors([V='$VAR'(X)|T]) :- !,
 label_factors(['$SKEL'(_,C)=C|T]) :-
 	label_factors(T).
 
-struct(Term) -->
+%%	struct0(+Term)//
+%
+%	Deal with the outer term.  Note that labels inside terms are
+%	embedded in the term label.
+
+struct0(Prim) -->
+	{ number(Prim), !,
+	  format(codes(Codes), '~q', [Prim])
+	},
+	cstring(Codes).
+struct0(Prim) -->
+	{ primitive(Prim), !,
+	  format(codes(Codes), '~q', [Prim])
+	},
+	"\"", cstring(Codes), "\"".
+struct0(Term) -->
 	struct(Term, -(_), Links, []),
 	links(Links).
+
+%%	struct(+Term, Link, Links, RestLinks)//
+%
+%	Deal with compound and inner terms.
 
 struct('$SKEL'(Done, C), -(Id), Links, LinksT) -->
 	{ var(Done), !,
@@ -101,13 +121,14 @@ struct(Prim, _, Links, Links) -->
 	{ primitive(Prim), !,
 	  format(codes(Codes), '~q', [Prim])
 	},
-	gv_string(Codes).
+	cstring(Codes).
 struct(Compound, -(Id), Links, LinkT) --> !,
-	{ Compound =.. [F|Args],
-	  gensym(struct, Id)
+	{ compound_name_arguments(Compound, F, Args),
+	  gensym(struct, Id),
+	  format(codes(FCodes), '~q', [F])
 	},
 	"  ", atom(Id),
-	" [", "label=\"<f> ", gv_atom(F), " ",
+	" [", "label=\"<f> ", cstring(FCodes), " ",
 	gv_args(Args, 0, Id, Links, LinkT), "\"];\n".
 struct(Compound, Id-Arg, [link_c(Id-Arg, _, Compound)|LinkT], LinkT) -->
 	".".
@@ -149,22 +170,30 @@ primitive('$VAR'(_)) :- !.
 primitive(X) :-
 	\+ compound(X).
 
-gv_atom(A) -->
-	{ atom_codes(A, Codes) },
-	gv_string(Codes).
-
-gv_string([]) --> [].
-gv_string([H|T]) --> gv_string_code(H), gv_string(T).
-
-%%	gv_string_code(+Code)// is det.
+%%	cstring(+Codes)//
 %
-%	Emit (label) string.
-%
-%	@tbd	Complete definition, summarize long atoms, etc.
+%	Create a C-string. Normally =dot=  appears   to  be  using UTF-8
+%	encoding. Would there be a  safer   way  to  transport non-ascii
+%	characters, such as \uXXXX?
 
-gv_string_code(32) --> !,
-	"' ".
-gv_string_code(0'\n) --> !,
-	"'n".
-gv_string_code(C) -->
-	[C].
+cstring([]) -->
+	[].
+cstring([H|T]) -->
+	(   cchar(H)
+	->  []
+	;   [H]
+	),
+	cstring(T).
+
+cchar(0'") --> "\\\"".
+cchar(0'\n) --> "\\n".
+cchar(0'\t) --> "\\t".
+cchar(0'\b) --> "\\b".
+cchar(0'|) --> "\\|".
+cchar(0'[) --> "\\[".
+cchar(0']) --> "\\]".
+
+:- if(\+current_predicate(compound_name_arguments/3)).
+compound_name_arguments(Term, Name, Args) :-
+	Term =.. [Name|Args].
+:- endif.
