@@ -3,7 +3,7 @@
 	    term_to_dot/2,		% +Out, +Term
 	    dotty_term/1		% +Term
 	  ]).
-:- use_module(library(http/dcg_basics)).
+:- use_module(library(dcg/basics)).
 :- use_module(library(process)).
 :- use_module(library(settings)).
 
